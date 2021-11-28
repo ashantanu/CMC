@@ -427,8 +427,8 @@ def train_moco(epoch, train_loader, model, model_ema, contrast, criterion, optim
 
     end = time.time()
     for idx, (inputs, _, index) in enumerate(train_loader):
-        if idx<1865:##CHANGED
-            continue##CHANGED
+        # if idx<1865:##CHANGED
+        #     continue##CHANGED
         data_time.update(time.time() - end)
 
         bsz = inputs.size(0)

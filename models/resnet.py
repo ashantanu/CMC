@@ -107,22 +107,24 @@ class Bottleneck(nn.Module):
 
 class ResNet(nn.Module):
 
-    def __init__(self, block, layers, low_dim=128, in_channel=3, width=1):
-        self.inplanes = 64
+    def __init__(self, block, layers, low_dim=128, in_channel=3, width=1, avg_pool=True):
+        self.inplanes = 3
         super(ResNet, self).__init__()
-        self.conv1 = nn.Conv2d(in_channel, 64, kernel_size=7, stride=2, padding=3,
-                               bias=False)
-        self.bn1 = nn.BatchNorm2d(64)
-        self.relu = nn.ReLU(inplace=True)
+        # self.conv1 = nn.Conv2d(in_channel, 64, kernel_size=7, stride=2, padding=3,
+        #                       bias=False)
+        # self.bn1 = nn.BatchNorm2d(64)
+        # self.relu = nn.ReLU(inplace=True)
+        self.avg_pool = avg_pool
 
         self.base = int(64 * width)
 
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        # self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.layer1 = self._make_layer(block, self.base, layers[0])
         self.layer2 = self._make_layer(block, self.base * 2, layers[1], stride=2)
         self.layer3 = self._make_layer(block, self.base * 4, layers[2], stride=2)
         self.layer4 = self._make_layer(block, self.base * 8, layers[3], stride=2)
-        self.avgpool = nn.AvgPool2d(7, stride=1)
+        # self.avgpool = nn.AvgPool2d(7, stride=1)
+        self.avgpool = nn.AdaptiveAvgPool2d(1)
         self.fc = nn.Linear(self.base * 8 * block.expansion, low_dim)
         self.l2norm = Normalize(2)
 
@@ -154,10 +156,10 @@ class ResNet(nn.Module):
     def forward(self, x, layer=7):
         if layer <= 0:
             return x
-        x = self.conv1(x)
-        x = self.bn1(x)
-        x = self.relu(x)
-        x = self.maxpool(x)
+        # x = self.conv1(x)
+        # x = self.bn1(x)
+        # x = self.relu(x)
+        # x = self.maxpool(x)
         if layer == 1:
             return x
         x = self.layer1(x)
@@ -172,7 +174,8 @@ class ResNet(nn.Module):
         x = self.layer4(x)
         if layer == 5:
             return x
-        x = self.avgpool(x)
+        if self.avg_pool:
+            x = self.avgpool(x)
         x = x.view(x.size(0), -1)
         if layer == 6:
             return x
@@ -203,6 +206,11 @@ def resnet34(pretrained=False, **kwargs):
         model.load_state_dict(model_zoo.load_url(model_urls['resnet34']))
     return model
 
+def resnet12(pretrained=False, **kwargs):
+    """Constructs a ResNet-12 model.
+    """
+    model = ResNet(BasicBlock, [1, 1, 1, 1], **kwargs)
+    return model
 
 def resnet50(pretrained=False, **kwargs):
     """Constructs a ResNet-50 model.
@@ -247,6 +255,15 @@ class InsResNet50(nn.Module):
     def forward(self, x, layer=7):
         return self.encoder(x, layer)
 
+class InsResNet12(nn.Module):
+    """Encoder for instance discrimination and MoCo"""
+    def __init__(self, width=1):
+        super(InsResNet12, self).__init__()
+        self.encoder = resnet12(width=width)
+        self.encoder = nn.DataParallel(self.encoder)
+
+    def forward(self, x, layer=7):
+        return self.encoder(x, layer)
 
 class ResNetV1(nn.Module):
     def __init__(self, name='resnet50'):

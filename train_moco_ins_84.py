@@ -20,7 +20,8 @@ import tensorboard_logger as tb_logger
 from torchvision import transforms, datasets
 from util import adjust_learning_rate, AverageMeter
 
-from models.resnet import InsResNet50, InsResNet12
+from models.resnet import InsResNet50
+from models.resnet import InsResNet12
 from NCE.NCEAverage import MemoryInsDis
 from NCE.NCEAverage import MemoryMoCo
 from NCE.NCECriterion import NCECriterion
@@ -49,6 +50,7 @@ def parse_option():
     parser.add_argument('--batch_size', type=int, default=128, help='batch_size')
     parser.add_argument('--num_workers', type=int, default=18, help='num of workers to use')
     parser.add_argument('--epochs', type=int, default=240, help='number of training epochs')
+    parser.add_argument('--prefix', type=str, default='', help='prefix for folder name')
 
     # optimization
     parser.add_argument('--learning_rate', type=float, default=0.03, help='learning rate')
@@ -97,8 +99,8 @@ def parse_option():
     opt = parser.parse_args()
 
     # set the path according to the environment
-    opt.model_path = './{}_models'.format(opt.dataset)
-    opt.tb_path = './{}_tensorboard'.format(opt.dataset)
+    opt.model_path = './{}_{}_models'.format(opt.prefix, opt.dataset)
+    opt.tb_path = './{}_{}_tensorboard'.format(opt.prefix, opt.dataset)
 
     if opt.dataset == 'imagenet':
         if 'alexnet' not in opt.model:
@@ -110,7 +112,7 @@ def parse_option():
         opt.lr_decay_epochs.append(int(it))
 
     opt.method = 'softmax' if opt.softmax else 'nce'
-    prefix = 'MoCo{}'.format(opt.alpha) if opt.moco else 'InsDis'
+    prefix = '84_MoCo{}'.format(opt.alpha) if opt.moco else 'InsDis'
 
     opt.model_name = '{}_{}_{}_{}_lr_{}_decay_{}_bsz_{}_crop_{}'.format(prefix, opt.method, opt.nce_k, opt.model,
                                                                         opt.learning_rate, opt.weight_decay,
@@ -148,6 +150,9 @@ def get_shuffle_ids(bsz):
     backward_inds.index_copy_(0, forward_inds, value)
     return forward_inds, backward_inds
 
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
 
 def main():
 
@@ -159,9 +164,9 @@ def main():
     # set the data loader
     data_folder = os.path.join(args.data_folder, 'train')
 
-    image_size = 224
-    mean = [0.485, 0.456, 0.406]
-    std = [0.229, 0.224, 0.225]
+    image_size = 84
+    mean = [120.39586422 / 255.0, 115.59361427 / 255.0, 104.54012653 / 255.0]
+    std = [70.68188272 / 255.0, 68.27635443 / 255.0, 72.54505529 / 255.0]
     normalize = transforms.Normalize(mean=mean, std=std)
 
     if args.aug == 'NULL':
@@ -212,6 +217,8 @@ def main():
     else:
         raise NotImplementedError('model not supported {}'.format(args.model))
 
+    print("Number of Params = ",count_parameters(model))
+    # print(model)
     # copy weights from `model' to `model_ema'
     if args.moco:
         moment_update(model, model_ema, 0)
@@ -219,6 +226,7 @@ def main():
     # set the contrast memory and criterion
     if args.moco:
         contrast = MemoryMoCo(128, n_data, args.nce_k, args.nce_t, args.softmax).cuda(args.gpu)
+        print("Params for MemoryMoCo - ", args.nce_k, args.nce_t)
     else:
         contrast = MemoryInsDis(128, n_data, args.nce_k, args.nce_t, args.nce_m, args.softmax).cuda(args.gpu)
 
@@ -419,6 +427,8 @@ def train_moco(epoch, train_loader, model, model_ema, contrast, criterion, optim
 
     end = time.time()
     for idx, (inputs, _, index) in enumerate(train_loader):
+        if idx<1865:##CHANGED
+            continue##CHANGED
         data_time.update(time.time() - end)
 
         bsz = inputs.size(0)
@@ -442,6 +452,7 @@ def train_moco(epoch, train_loader, model, model_ema, contrast, criterion, optim
             feat_k = model_ema(x2)
             feat_k = feat_k[reverse_ids]
 
+        # out = contrast(feat_q.transpose(1,0), feat_k.transpose(1,0))
         out = contrast(feat_q, feat_k)
 
         loss = criterion(out)
@@ -475,7 +486,7 @@ def train_moco(epoch, train_loader, model, model_ema, contrast, criterion, optim
                   'prob {prob.val:.3f} ({prob.avg:.3f})'.format(
                    epoch, idx + 1, len(train_loader), batch_time=batch_time,
                    data_time=data_time, loss=loss_meter, prob=prob_meter))
-            print(out.shape)
+            # print(out.shape)
             sys.stdout.flush()
 
     return loss_meter.avg, prob_meter.avg
